@@ -191,10 +191,6 @@ function generateMissionAssignments({ millionaireUserId, users }) {
 
 function getStateForUser(userId) {
   const users = all(`SELECT id, username FROM users WHERE ${GAME_PLAYERS_WHERE} ORDER BY id`);
-  const playerAliases = users.reduce((acc, user, index) => {
-    acc[Number(user.id)] = `Jogador ${index + 1}`;
-    return acc;
-  }, {});
   const me = get('SELECT id, username, is_admin FROM users WHERE id = ?', [userId]);
   const isAdmin = me && Number(me.is_admin) === 1;
   const state = get('SELECT draw_done, millionaire_user_id FROM game_state WHERE id = 1');
@@ -232,12 +228,12 @@ function getStateForUser(userId) {
         millionaireCount,
         players: users.map((u) => ({
           id: Number(u.id),
-          label: playerAliases[Number(u.id)],
+          username: u.username,
         })),
         missions: missions.map((mission) => ({
           id: mission.id,
           ownerUserId: mission.ownerUserId,
-          ownerLabel: playerAliases[mission.ownerUserId],
+          ownerUsername: mission.ownerUsername,
         })),
       }
     : null;
@@ -262,7 +258,7 @@ function getStateForUser(userId) {
       : [],
     players: users.map((u) => ({
       id: Number(u.id),
-      username: isAdmin ? playerAliases[Number(u.id)] : u.username,
+      username: u.username,
     })),
     adminData,
   };
@@ -644,6 +640,41 @@ app.delete('/api/admin/missions/:missionId', authMiddleware, (req, res) => {
   return res.json({
     message: 'Missão removida com sucesso.',
   });
+});
+
+app.put('/api/admin/players/:playerId/password', authMiddleware, async (req, res) => {
+  const requester = getRequesterOr404(req.user.id, res);
+  if (!requester) {
+    return undefined;
+  }
+
+  if (!requireAdminOr403(requester, res)) {
+    return undefined;
+  }
+
+  const playerId = Number(req.params.playerId);
+  if (!Number.isInteger(playerId)) {
+    return res.status(400).json({ error: 'ID de jogador inválido.' });
+  }
+
+  const player = get('SELECT id, is_admin FROM users WHERE id = ?', [playerId]);
+  if (!player) {
+    return res.status(404).json({ error: 'Jogador não encontrado.' });
+  }
+
+  if (Number(player.is_admin) === 1) {
+    return res.status(400).json({ error: 'Não é permitido resetar senha do usuário admin por esta rota.' });
+  }
+
+  const { newPassword } = req.body || {};
+  if (!newPassword || String(newPassword).length < 4) {
+    return res.status(400).json({ error: 'A nova senha deve ter ao menos 4 caracteres.' });
+  }
+
+  const passwordHash = await bcrypt.hash(String(newPassword), 10);
+  run('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, playerId]);
+
+  return res.json({ message: 'Senha redefinida com sucesso.' });
 });
 
 app.get('*', (req, res) => {

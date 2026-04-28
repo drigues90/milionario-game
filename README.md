@@ -28,8 +28,9 @@ Sistema web para 4 jogadores com:
 - O admin também pode:
   - remover jogadores (isso reinicia o sorteio da rodada);
   - remover missões individualmente.
+  - resetar a senha de um jogador informando uma nova senha (sobrescreve a antiga).
 - No perfil do admin:
-  - os nomes dos jogadores ficam ocultos (exibição anônima);
+  - os usernames dos jogadores ficam visíveis para administração;
   - o texto das missões dos jogadores fica oculto;
   - é exibida apenas a quantidade de jogadores milionários na rodada.
 
@@ -82,6 +83,7 @@ Crie um arquivo `.env` no `backend/` se quiser customizar:
 4. O jogador sorteado como **MILIONARIO** usa o botão de sorteio de missões para visualizar 4 missões (uma de cada jogador, incluindo uma dele).
 5. Se necessário, o usuário `admin` pode usar **Resetar rodada** para zerar sorteio e missões.
 6. O `admin` pode remover jogadores e missões pelo **Painel do Admin**.
+7. O `admin` também pode redefinir senha de jogadores pelo **Painel do Admin**.
 
 ## Observação técnica
 

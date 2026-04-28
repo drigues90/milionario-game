@@ -21,6 +21,7 @@ function App() {
   const [missionText, setMissionText] = useState('');
   const [editingMissionId, setEditingMissionId] = useState(null);
   const [editingMissionText, setEditingMissionText] = useState('');
+  const [adminPasswordByPlayer, setAdminPasswordByPlayer] = useState({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -214,10 +215,10 @@ function App() {
     }
   }
 
-  async function handleRemovePlayer(playerId, playerLabel) {
+  async function handleRemovePlayer(playerId, playerUsername) {
     clearFeedback();
 
-    const confirmed = window.confirm(`Deseja remover o ${playerLabel}?`);
+    const confirmed = window.confirm(`Deseja remover o jogador ${playerUsername}?`);
     if (!confirmed) return;
 
     setLoading(true);
@@ -225,6 +226,33 @@ function App() {
       const result = await api(`/admin/players/${playerId}`, 'DELETE');
       setMessage(result.message);
       await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAdminResetPassword(playerId, playerUsername) {
+    clearFeedback();
+
+    const newPassword = adminPasswordByPlayer[playerId] || '';
+    if (newPassword.length < 4) {
+      setError('A nova senha deve ter ao menos 4 caracteres.');
+      return;
+    }
+
+  const confirmed = window.confirm(`Deseja redefinir a senha do jogador ${playerUsername}?`);
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const result = await api(`/admin/players/${playerId}/password`, 'PUT', { newPassword });
+      setMessage(result.message);
+      setAdminPasswordByPlayer((prev) => ({
+        ...prev,
+        [playerId]: '',
+      }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -526,17 +554,42 @@ function App() {
                   {(state?.adminData?.players || []).map((player) => (
                     <li
                       key={player.id}
-                      className="bg-slate-800 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+                      className="bg-slate-800 rounded-lg px-3 py-2 flex flex-col gap-3"
                     >
-                      <span>{player.label}</span>
-                      <button
-                        type="button"
-                        disabled={loading}
-                        className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-3 py-1 text-sm font-semibold"
-                        onClick={() => handleRemovePlayer(player.id, player.label)}
-                      >
-                        Remover
-                      </button>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{player.username}</span>
+                        <button
+                          type="button"
+                          disabled={loading}
+                          className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-3 py-1 text-sm font-semibold"
+                          onClick={() => handleRemovePlayer(player.id, player.username)}
+                        >
+                          Remover
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="password"
+                          value={adminPasswordByPlayer[player.id] || ''}
+                          onChange={(e) =>
+                            setAdminPasswordByPlayer((prev) => ({
+                              ...prev,
+                              [player.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Nova senha"
+                          className="flex-1 bg-slate-900 rounded-lg px-3 py-2 border border-slate-700"
+                        />
+                        <button
+                          type="button"
+                          disabled={loading}
+                          className="bg-amber-500 hover:bg-amber-400 disabled:bg-amber-900 text-slate-900 rounded-lg px-3 py-2 text-sm font-semibold"
+                          onClick={() => handleAdminResetPassword(player.id, player.username)}
+                        >
+                          Resetar senha
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -551,7 +604,7 @@ function App() {
                       className="bg-slate-800 rounded-lg px-3 py-2 flex items-start justify-between gap-3"
                     >
                       <div>
-                        <p className="text-xs text-slate-400 mb-1">{mission.ownerLabel}</p>
+                        <p className="text-xs text-slate-400 mb-1">{mission.ownerUsername}</p>
                         <p>Missão #{mission.id}</p>
                       </div>
                       <button
