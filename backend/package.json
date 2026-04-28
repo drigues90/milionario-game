@@ -1,0 +1,29 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "API do jogo O Milionario com Node.js e SQLite (sql.js)",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "node tests/run-tests.js"
+  },
+  "keywords": [
+    "game",
+    "nodejs",
+    "sqlite",
+    "react"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "^4.22.1",
+    "jsonwebtoken": "^9.0.3",
+    "sql.js": "^1.10.2"
+  }
+}
