@@ -21,6 +21,9 @@ function App() {
   const [missionText, setMissionText] = useState('');
   const [editingMissionId, setEditingMissionId] = useState(null);
   const [editingMissionText, setEditingMissionText] = useState('');
+  const [voteTargetUserId, setVoteTargetUserId] = useState('');
+  const [adminRoundInput, setAdminRoundInput] = useState('1');
+  const [adminPointsByPlayer, setAdminPointsByPlayer] = useState({});
   const [adminPasswordByPlayer, setAdminPasswordByPlayer] = useState({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -69,6 +72,31 @@ function App() {
     const interval = setInterval(refreshState, 4000);
     return () => clearInterval(interval);
   }, [token]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const onLoad = () => {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('Falha ao registrar service worker:', err);
+      });
+    };
+
+    window.addEventListener('load', onLoad);
+    return () => window.removeEventListener('load', onLoad);
+  }, []);
+
+  useEffect(() => {
+    if (!state?.isAdmin) return;
+
+    setAdminRoundInput(String(state?.currentRound || 1));
+    const nextPoints = {};
+    (state?.adminData?.players || []).forEach((player) => {
+      nextPoints[player.id] = String(player.points ?? 0);
+    });
+    setAdminPointsByPlayer(nextPoints);
+  }, [state?.isAdmin, state?.currentRound, state?.adminData?.players]);
 
   function persistSession(authData) {
     setToken(authData.token);
@@ -200,6 +228,76 @@ function App() {
     }
   }
 
+  async function handleStartVoting() {
+    clearFeedback();
+    setLoading(true);
+
+    try {
+      const result = await api('/rounds/start-voting', 'POST');
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVoteSubmit(event) {
+    event.preventDefault();
+    clearFeedback();
+
+    if (!voteTargetUserId) {
+      setError('Selecione um jogador para votar.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await api('/rounds/vote', 'POST', { targetUserId: Number(voteTargetUserId) });
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCompleteAssignedMission(assignmentId) {
+    clearFeedback();
+    setLoading(true);
+
+    try {
+      const result = await api(`/rounds/assigned-missions/${assignmentId}/complete`, 'POST');
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStartNextRound() {
+    clearFeedback();
+
+    const confirmed = window.confirm('Deseja iniciar a próxima rodada? Isso fará um novo sorteio de perfis.');
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const result = await api('/rounds/next', 'POST');
+      setMessage(result.message);
+      setVoteTargetUserId('');
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleResetGame() {
     clearFeedback();
     setLoading(true);
@@ -278,6 +376,64 @@ function App() {
     }
   }
 
+  async function handleAdminSetCurrentRound(event) {
+    event.preventDefault();
+    clearFeedback();
+
+    const currentRound = Number(adminRoundInput);
+    if (!Number.isInteger(currentRound) || currentRound < 1) {
+      setError('Informe uma rodada válida (inteiro maior ou igual a 1).');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await api('/admin/game/current-round', 'PUT', { currentRound });
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAdminSetPlayerPoints(playerId, playerUsername) {
+    clearFeedback();
+
+    const points = Number(adminPointsByPlayer[playerId]);
+    if (!Number.isInteger(points)) {
+      setError(`Pontuação inválida para ${playerUsername}. Informe um número inteiro.`);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await api(`/admin/players/${playerId}/points`, 'PUT', { points });
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAdminSetAssignedMissionCompleted(assignmentId, completed) {
+    clearFeedback();
+    setLoading(true);
+
+    try {
+      const result = await api(`/admin/assigned-missions/${assignmentId}/completed`, 'PUT', { completed });
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function logout() {
     setToken('');
     setUser(null);
@@ -290,11 +446,14 @@ function App() {
 
   const statusLabel = useMemo(() => {
     if (!state) return 'Carregando...';
+    if (state.isAdmin) return 'Admin acompanhando a rodada atual';
     if (state.totalPlayers < 4) return `Aguardando jogadores (${state.totalPlayers}/4)`;
     if (!state.profileViewed) return 'Clique em "Ver seu perfil" para descobrir seu papel';
     if (!state.allPlayersSubmittedMissions)
       return `Aguardando missões (${state.missionsCount}/${state.requiredTotalMissions})`;
-    return 'Jogo pronto para sortear 4 missões para o Milionário';
+    if (!state.votingStarted) return 'Aguardando início da votação';
+    if (!state.votingFinalized) return `Votação em andamento (${state.votesCount}/3 votos)`;
+    return 'Rodada concluída. O milionário pode iniciar a próxima rodada';
   }, [state]);
 
   if (!isLogged) {
@@ -368,6 +527,14 @@ function App() {
               Jogador: <strong>{user.username}</strong>{' '}
               {state?.myRole ? `· Perfil: ${state.myRole}` : '· Perfil oculto'}
             </p>
+            <p className="text-sm text-slate-300 mt-1">
+              Rodada: <strong>{state?.currentRound || 1}</strong>{' '}
+              {!state?.isAdmin && (
+                <>
+                  · Pontos: <strong>{state?.myPoints ?? 0}</strong>
+                </>
+              )}
+            </p>
             <p className="text-sm text-slate-400 mt-1">Status: {statusLabel}</p>
           </div>
           <div className="flex gap-2">
@@ -400,7 +567,10 @@ function App() {
             <ul className="space-y-2">
               {(state?.players || []).map((player) => (
                 <li key={player.id} className="bg-slate-800 rounded-lg px-3 py-2">
-                  {player.username}
+                  <div className="flex items-center justify-between gap-3">
+                    <span>{player.username}</span>
+                    <span className="text-xs text-emerald-300 font-semibold">{player.points ?? 0} pts</span>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -504,6 +674,74 @@ function App() {
           </article>
         </section>
 
+        {!state?.isAdmin && state?.myRole === 'POBRE' && state?.profileViewed && state?.allPlayersSubmittedMissions && (
+          <section className="bg-slate-900 border border-indigo-700 rounded-2xl p-5">
+            <h2 className="text-xl font-semibold text-indigo-300 mb-3">Votação da Rodada</h2>
+
+            {!state?.votingStarted ? (
+              <div className="space-y-3">
+                <p className="text-slate-300 text-sm">
+                  A votação começa quando os 4 jogadores clicarem em "Ver seu perfil".
+                </p>
+                <button
+                  className="bg-indigo-500 hover:bg-indigo-400 disabled:bg-indigo-800 rounded-lg px-4 py-2 font-semibold"
+                  disabled={loading || !state?.allPlayersViewedProfiles}
+                  onClick={handleStartVoting}
+                  type="button"
+                >
+                  Iniciar votação
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-300">
+                  Votos: {state?.votesCount || 0}/3
+                </p>
+
+                {state?.votingFinalized ? (
+                  <p className="text-emerald-300 text-sm font-semibold">
+                    Votação finalizada! Pontuação da rodada já foi aplicada.
+                  </p>
+                ) : state?.hasVoted ? (
+                  <p className="text-emerald-300 text-sm font-semibold">
+                    Seu voto já foi registrado.
+                  </p>
+                ) : (
+                  <form onSubmit={handleVoteSubmit} className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {(state?.players || [])
+                        .filter((player) => player.id !== user.id)
+                        .map((player) => (
+                          <label
+                            key={player.id}
+                            className="bg-slate-800 rounded-lg px-3 py-2 flex items-center gap-2 cursor-pointer"
+                          >
+                            <input
+                              type="radio"
+                              name="voteTarget"
+                              value={String(player.id)}
+                              checked={String(voteTargetUserId) === String(player.id)}
+                              onChange={(e) => setVoteTargetUserId(e.target.value)}
+                            />
+                            <span>{player.username}</span>
+                          </label>
+                        ))}
+                    </div>
+
+                    <button
+                      className="bg-indigo-500 hover:bg-indigo-400 disabled:bg-indigo-800 rounded-lg px-4 py-2 font-semibold"
+                      disabled={loading || !voteTargetUserId}
+                      type="submit"
+                    >
+                      Confirmar voto
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
         {state?.myRole === 'MILIONARIO' && (
           <section className="bg-slate-900 border border-amber-700 rounded-2xl p-5">
             <h2 className="text-xl font-semibold text-amber-300 mb-3">Painel do Milionário</h2>
@@ -524,7 +762,7 @@ function App() {
               }
               type="button"
             >
-              Sortear e ver minhas 4 missões
+              Ver minhas 4 missões sorteadas
             </button>
 
             <ul className="space-y-2">
@@ -534,9 +772,40 @@ function App() {
                     Missão sorteada de: {mission.ownerUsername}
                   </p>
                   <p>{mission.content}</p>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span
+                      className={`text-xs font-semibold ${
+                        mission.completed ? 'text-emerald-300' : 'text-slate-300'
+                      }`}
+                    >
+                      {mission.completed ? 'Concluída' : 'Pendente'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={loading || mission.completed || !state?.votingFinalized}
+                      onClick={() => handleCompleteAssignedMission(mission.id)}
+                      className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-900 text-slate-900 rounded-lg px-3 py-1 text-xs font-bold"
+                    >
+                      Marcar concluída
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
+
+            <div className="mt-5 pt-4 border-t border-slate-700">
+              <p className="text-sm text-slate-300 mb-3">
+                Missões concluídas: {state?.completedAssignedMissionsCount || 0}/4
+              </p>
+              <button
+                type="button"
+                onClick={handleStartNextRound}
+                disabled={loading || !state?.votingFinalized}
+                className="bg-indigo-500 hover:bg-indigo-400 disabled:bg-indigo-800 rounded-lg px-4 py-2 font-semibold"
+              >
+                Iniciar nova rodada
+              </button>
+            </div>
           </section>
         )}
 
@@ -546,6 +815,27 @@ function App() {
             <p className="text-sm text-slate-300 mb-4">
               Quantidade de milionários nesta rodada: <strong>{state?.adminData?.millionaireCount ?? 0}</strong>
             </p>
+
+            <article className="mb-6 bg-slate-800 rounded-lg p-4">
+              <h3 className="font-semibold mb-2">Configurar rodada atual</h3>
+              <form onSubmit={handleAdminSetCurrentRound} className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  value={adminRoundInput}
+                  onChange={(e) => setAdminRoundInput(e.target.value)}
+                  className="bg-slate-900 rounded-lg px-3 py-2 border border-slate-700 w-full sm:w-40"
+                  placeholder="Rodada"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-indigo-500 hover:bg-indigo-400 disabled:bg-indigo-900 rounded-lg px-4 py-2 font-semibold"
+                >
+                  Salvar rodada
+                </button>
+              </form>
+            </article>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <article>
@@ -565,6 +855,29 @@ function App() {
                           onClick={() => handleRemovePlayer(player.id, player.username)}
                         >
                           Remover
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="number"
+                          value={adminPointsByPlayer[player.id] ?? ''}
+                          onChange={(e) =>
+                            setAdminPointsByPlayer((prev) => ({
+                              ...prev,
+                              [player.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Pontos"
+                          className="flex-1 bg-slate-900 rounded-lg px-3 py-2 border border-slate-700"
+                        />
+                        <button
+                          type="button"
+                          disabled={loading}
+                          className="bg-indigo-500 hover:bg-indigo-400 disabled:bg-indigo-900 rounded-lg px-3 py-2 text-sm font-semibold"
+                          onClick={() => handleAdminSetPlayerPoints(player.id, player.username)}
+                        >
+                          Salvar pontos
                         </button>
                       </div>
 
@@ -590,6 +903,37 @@ function App() {
                           Resetar senha
                         </button>
                       </div>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+
+              <article>
+                <h3 className="font-semibold mb-2">Missões atribuídas da rodada</h3>
+                <ul className="space-y-2 max-h-72 overflow-auto pr-1">
+                  {(state?.adminData?.assignedMissions || []).map((assignment) => (
+                    <li
+                      key={assignment.id}
+                      className="bg-slate-800 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">{assignment.ownerUsername}</p>
+                        <p>Missão atribuída #{assignment.id}</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        className={`rounded-lg px-3 py-1 text-sm font-semibold ${
+                          assignment.completed
+                            ? 'bg-emerald-600 hover:bg-emerald-500'
+                            : 'bg-amber-500 hover:bg-amber-400 text-slate-900'
+                        }`}
+                        onClick={() =>
+                          handleAdminSetAssignedMissionCompleted(assignment.id, !assignment.completed)
+                        }
+                      >
+                        {assignment.completed ? 'Concluída' : 'Pendente'}
+                      </button>
                     </li>
                   ))}
                 </ul>

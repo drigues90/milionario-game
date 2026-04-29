@@ -1,0 +1,18 @@
+﻿Milionario Host Migration Package
+GeneratedAt: 
+2026-04-29T11:45:49.3524107-03:00
+ProjectRoot: 
+C:\Users\jonathan.jesus\Documents\DevX\milionario
+Package: 
+milionario-migration-20260429-114540.zip
+IncludeEnv: 
+False
+
+Included:
+- backend/ (sem node_modules)
+- frontend/
+- gemini/
+- backend/data/milionario.sqlite
+- backend/.env.example (se existir)
+- backend/.env (apenas se -IncludeEnv)
+- README.md
