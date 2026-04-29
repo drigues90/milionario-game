@@ -455,6 +455,7 @@ function App() {
     if (!state.votingFinalized) return `Votação em andamento (${state.votesCount}/3 votos)`;
     return 'Rodada concluída. O milionário pode iniciar a próxima rodada';
   }, [state]);
+  const millionaireMissionsAlreadyAssigned = (state?.missionsVisibleToMillionaire || []).length === 4;
 
   if (!isLogged) {
     return (
@@ -758,11 +759,14 @@ function App() {
                 loading ||
                 !state?.drawDone ||
                 !state?.allPlayersSubmittedMissions ||
-                state?.myRole !== 'MILIONARIO'
+                state?.myRole !== 'MILIONARIO' ||
+                millionaireMissionsAlreadyAssigned
               }
               type="button"
             >
-              Ver minhas 4 missões sorteadas
+              {millionaireMissionsAlreadyAssigned
+                ? 'Missões já sorteadas nesta rodada'
+                : 'Ver minhas 4 missões sorteadas'}
             </button>
 
             <ul className="space-y-2">

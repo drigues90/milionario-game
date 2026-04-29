@@ -224,7 +224,13 @@ function getAllMissions() {
   ).map(mapMissionRow);
 }
 
-function getSelectedMissions() {
+function getSelectedMissions({ millionaireUserId = null } = {}) {
+  const hasMillionaireFilter = millionaireUserId !== null && millionaireUserId !== undefined;
+  const millionaireFilterClause = hasMillionaireFilter
+    ? 'AND selected_missions.millionaire_user_id = ?'
+    : '';
+  const params = hasMillionaireFilter ? [Number(millionaireUserId)] : [];
+
   return all(
     `SELECT selected_missions.id,
             selected_missions.owner_user_id,
@@ -238,8 +244,11 @@ function getSelectedMissions() {
      FROM selected_missions
      INNER JOIN missions ON missions.id = selected_missions.mission_id
      INNER JOIN users ON users.id = selected_missions.owner_user_id
-    WHERE users.is_admin = 0
-     ORDER BY selected_missions.owner_user_id ASC`
+     WHERE users.is_admin = 0
+       ${millionaireFilterClause}
+      ORDER BY selected_missions.owner_user_id ASC`
+    ,
+    params
   ).map((row) => ({
     id: Number(row.id),
     missionId: Number(row.mission_id),
@@ -322,7 +331,13 @@ function getStateForUser(userId) {
   const state = getGameState();
   const currentRound = Number(state.current_round || 1);
   const missions = getAllMissions();
-  const selectedMissions = getSelectedMissions();
+  const allSelectedMissions = getSelectedMissions();
+  const currentMillionaireUserId = state.millionaire_user_id
+    ? Number(state.millionaire_user_id)
+    : null;
+  const selectedMissions = currentMillionaireUserId
+    ? getSelectedMissions({ millionaireUserId: currentMillionaireUserId })
+    : [];
   const myMissionsRaw = all(
     `SELECT missions.id, missions.owner_user_id, missions.content, missions.created_at, users.username
      FROM missions
@@ -383,7 +398,7 @@ function getStateForUser(userId) {
           ownerUserId: mission.ownerUserId,
           ownerUsername: mission.ownerUsername,
         })),
-        assignedMissions: selectedMissions.map((mission) => ({
+        assignedMissions: allSelectedMissions.map((mission) => ({
           id: mission.id,
           missionId: mission.missionId,
           ownerUserId: mission.ownerUserId,
@@ -401,7 +416,7 @@ function getStateForUser(userId) {
     isAdmin,
     drawDone,
     profileViewed,
-    millionaireUserId: state.millionaire_user_id ? Number(state.millionaire_user_id) : null,
+    millionaireUserId: currentMillionaireUserId,
     myRole: meRole,
     myPoints,
     myMissions,
@@ -824,7 +839,7 @@ app.get('/api/game/missions', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'É necessário ter exatamente 4 jogadores.' });
   }
 
-  let selectedMissions = getSelectedMissions();
+  let selectedMissions = getSelectedMissions({ millionaireUserId: req.user.id });
 
   if (selectedMissions.length !== 4) {
     try {
@@ -832,7 +847,7 @@ app.get('/api/game/missions', authMiddleware, (req, res) => {
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Erro ao sortear missões.' });
     }
-    selectedMissions = getSelectedMissions();
+    selectedMissions = getSelectedMissions({ millionaireUserId: req.user.id });
   }
 
   return res.json({ missions: selectedMissions });
@@ -906,7 +921,9 @@ app.post('/api/rounds/next', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'A votação da rodada precisa estar finalizada para avançar.' });
   }
 
-  const selectedMissions = getSelectedMissions();
+  const selectedMissions = state.millionaire_user_id
+    ? getSelectedMissions({ millionaireUserId: Number(state.millionaire_user_id) })
+    : [];
   if (selectedMissions.length !== 4) {
     return res.status(400).json({
       error: 'As 4 missões da rodada precisam estar atribuídas antes de iniciar uma nova rodada.',
