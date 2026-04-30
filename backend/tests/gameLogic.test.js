@@ -16,7 +16,16 @@ function runGameLogicTests() {
 
   assert.equal(millionaireCount, 1);
   assert.equal(poorCount, 3);
- 
+
+  const rolesWithExclusion = randomizeRolesForUsers(players, [10, 11, 12]);
+  const millionaireWithExclusion = rolesWithExclusion.find((r) => r.role === 'MILIONARIO');
+  assert.equal(Number(millionaireWithExclusion.userId), 13);
+
+  assert.throws(
+    () => randomizeRolesForUsers(players, [10, 11, 12, 13]),
+    /jogadores elegíveis/
+  );
+
   assert.throws(() => randomizeRolesForUsers([1, 2, 3]), /exatamente 4 jogadores/);
 
   const selected = pickRandomMissionFromEachPlayer([
@@ -46,7 +55,7 @@ function runGameLogicTests() {
       pickRandomMissionFromEachPlayer([
         {
           ownerUserId: 1,
-          missions: [{ id: 1 }, { id: 2 }, { id: 3 }],
+          missions: [],
         },
         {
           ownerUserId: 2,
@@ -61,7 +70,7 @@ function runGameLogicTests() {
           missions: [{ id: 12 }, { id: 13 }, { id: 14 }, { id: 15 }],
         },
       ]),
-    /exatamente 4 missões/
+    /ao menos 1 missão disponível/
   );
 
   assert.equal(

@@ -11,7 +11,8 @@ Sistema web para 4 jogadores com:
 - Cadastro e login com usuário e senha.
 - Limite de **4 jogadores** cadastrados.
 - Sorteio automático de **1 Milionário** e **3 Pobres** ao clicar em **Ver seu perfil**.
-- Cada jogador deve cadastrar **4 missões** (total de 16 missões no jogo).
+- Cada jogador deve cadastrar **ao menos 4 missões** (mínimo de 16 missões no jogo).
+- O cadastro de missão permanece disponível durante todo o jogo.
 - O sistema sorteia **1 missão de cada jogador** para o Milionário (4 missões no total), incluindo uma missão do próprio Milionário.
 - Uma missão já atribuída ao Milionário em rodada anterior **não pode ser sorteada novamente**.
 - O jogo agora funciona em **rodadas sequenciais**:
@@ -26,6 +27,10 @@ Sistema web para 4 jogadores com:
   - cada missão concluída pelo Milionário: **+1 ponto** para o Milionário.
 - Após a votação, o Milionário pode marcar missões sorteadas como concluídas (opcional, para pontuar).
 - A **próxima rodada** pode ser iniciada após a votação finalizada, sem obrigatoriedade de marcar missões como concluídas.
+- Se um jogador cair como Milionário, ele pode usar o botão **Recusar**:
+  - ele é removido do sorteio de Milionário daquela rodada;
+  - o sistema libera novamente o botão **Ver seu perfil** para todos;
+  - o status da rodada passa a exibir a mensagem **"milionario disponivel"**.
 - Cada jogador pode **editar/remover apenas as próprias missões**.
 - Após clicar em **Ver seu perfil**, o jogador não pode mais editar nem remover missões.
 - O Milionário só consegue ver as missões sorteadas quando:
@@ -46,6 +51,8 @@ Sistema web para 4 jogadores com:
   - remover missões individualmente.
   - resetar a senha de um jogador informando uma nova senha (sobrescreve a antiga).
   - definir manualmente qual é a rodada atual.
+  - resetar os perfis da rodada atual, liberando novamente o botão **Ver seu perfil** para todos.
+  - forçar um jogador alvo para ser o **Milionário** no próximo sorteio da rodada.
   - ajustar manualmente a pontuação atual de cada jogador.
   - marcar/desmarcar manualmente quais missões atribuídas já estão concluídas.
 - No perfil do admin:

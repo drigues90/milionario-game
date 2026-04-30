@@ -1,4 +1,4 @@
-function randomizeRolesForUsers(userIds) {
+function randomizeRolesForUsers(userIds, excludedMillionaireUserIds = []) {
   if (!Array.isArray(userIds) || userIds.length !== 4) {
     throw new Error('O sorteio exige exatamente 4 jogadores cadastrados.');
   }
@@ -8,8 +8,14 @@ function randomizeRolesForUsers(userIds) {
     throw new Error('Os jogadores devem ser únicos para o sorteio.');
   }
 
-  const millionaireIndex = Math.floor(Math.random() * 4);
-  const millionaireUserId = userIds[millionaireIndex];
+  const excluded = new Set((excludedMillionaireUserIds || []).map((id) => Number(id)));
+  const eligibleMillionaires = userIds.filter((id) => !excluded.has(Number(id)));
+  if (eligibleMillionaires.length === 0) {
+    throw new Error('Não há jogadores elegíveis para ser milionário nesta rodada.');
+  }
+
+  const millionaireIndex = Math.floor(Math.random() * eligibleMillionaires.length);
+  const millionaireUserId = eligibleMillionaires[millionaireIndex];
 
   return userIds.map((id) => ({
     userId: id,
@@ -23,8 +29,8 @@ function pickRandomMissionFromEachPlayer(missionsByPlayer) {
   }
 
   return missionsByPlayer.map((playerMissions) => {
-    if (!Array.isArray(playerMissions.missions) || playerMissions.missions.length !== 4) {
-      throw new Error('Cada jogador precisa ter exatamente 4 missões cadastradas.');
+    if (!Array.isArray(playerMissions.missions) || playerMissions.missions.length < 1) {
+      throw new Error('Cada jogador precisa ter ao menos 1 missão disponível para sorteio.');
     }
 
     const randomIndex = Math.floor(Math.random() * playerMissions.missions.length);
