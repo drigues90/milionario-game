@@ -25,6 +25,7 @@ function App() {
   const [adminRoundInput, setAdminRoundInput] = useState('1');
   const [adminPointsByPlayer, setAdminPointsByPlayer] = useState({});
   const [adminPasswordByPlayer, setAdminPasswordByPlayer] = useState({});
+  const [isDevelopmentMode, setIsDevelopmentMode] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -72,6 +73,24 @@ function App() {
     const interval = setInterval(refreshState, 4000);
     return () => clearInterval(interval);
   }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api('/runtime')
+      .then((data) => {
+        if (cancelled) return;
+        setIsDevelopmentMode(Boolean(data?.isDevelopment));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setIsDevelopmentMode(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -521,7 +540,12 @@ function App() {
 
   if (!isLogged) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-4">
+      <main className={`min-h-screen flex items-center justify-center p-4 ${isDevelopmentMode ? 'pt-16' : ''}`}>
+        {isDevelopmentMode && (
+          <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-slate-950 text-center font-bold tracking-wide py-2 px-4 shadow-lg">
+            MODO DE DESENVOLVIMENTO
+          </div>
+        )}
         <section className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6">
           <h1 className="text-3xl font-bold text-emerald-400 mb-2">O Milionario</h1>
           <p className="text-slate-300 mb-6">
@@ -581,7 +605,12 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen p-4 md:p-8">
+    <main className={`min-h-screen p-4 md:p-8 ${isDevelopmentMode ? 'pt-16 md:pt-20' : ''}`}>
+      {isDevelopmentMode && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-slate-950 text-center font-bold tracking-wide py-2 px-4 shadow-lg">
+          MODO DE DESENVOLVIMENTO
+        </div>
+      )}
       <div className="max-w-5xl mx-auto space-y-6">
         <header className="bg-slate-900 border border-slate-700 rounded-2xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>

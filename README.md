@@ -90,6 +90,18 @@ Na rede local, o backend também anuncia o serviço Bonjour com o nome `milionar
 npm --prefix .\backend run dev
 ```
 
+Ao rodar `npm run dev`, o backend restaura automaticamente o banco ativo a partir do snapshot:
+
+- `backend/data/milionario.dev.snapshot.sqlite`
+
+Esse arquivo deve conter sua massa de testes de desenvolvimento.
+
+Para atualizar o snapshot com o estado atual do banco:
+
+```bash
+cp ./backend/data/milionario.sqlite ./backend/data/milionario.dev.snapshot.sqlite
+```
+
 ## Testes
 
 ```powershell

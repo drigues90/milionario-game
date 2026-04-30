@@ -4,7 +4,7 @@
   "description": "API do jogo O Milionario com Node.js e SQLite (sql.js)",
   "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon src/server.js",
+    "dev": "NODE_ENV=development nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node tests/run-tests.js"
   },
