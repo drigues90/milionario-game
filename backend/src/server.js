@@ -20,6 +20,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
 
+app.get('/api/runtime', (req, res) => {
+  res.json({
+    isDevelopment: process.env.NODE_ENV === 'development',
+  });
+});
+
 const GAME_PLAYERS_WHERE = 'is_admin = 0';
 
 const POINTS = {

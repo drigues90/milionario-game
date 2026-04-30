@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const initSqlJs = require('sql.js');
 
 const dbPath = path.join(__dirname, '..', 'data', 'milionario.sqlite');
+const devSnapshotPath = path.join(__dirname, '..', 'data', 'milionario.dev.snapshot.sqlite');
 
 let SQL;
 let db;
@@ -277,6 +278,11 @@ function initSchema() {
 
 async function initDb() {
   SQL = await initSqlJs({});
+
+  // In dev mode, always reset the active DB from the saved test snapshot.
+  if (process.env.NODE_ENV === 'development' && fs.existsSync(devSnapshotPath)) {
+    fs.copyFileSync(devSnapshotPath, dbPath);
+  }
 
   if (fs.existsSync(dbPath)) {
     const fileBuffer = fs.readFileSync(dbPath);
