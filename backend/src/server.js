@@ -56,7 +56,14 @@ function requireAdminOr403(requester, res) {
 
 function getGameState() {
   return get(
-    `SELECT id, draw_done, millionaire_user_id, current_round, voting_started, voting_finalized, updated_at
+    `SELECT id,
+            draw_done,
+            millionaire_user_id,
+            forced_millionaire_user_id,
+            current_round,
+            voting_started,
+            voting_finalized,
+            updated_at
      FROM game_state
      WHERE id = 1`
   );
@@ -128,6 +135,21 @@ function getMyVoteTargetUserId(userId, roundNumber) {
   return vote ? Number(vote.target_user_id) : null;
 }
 
+function getRefusedMillionaireUserIds(roundNumber) {
+  return all(
+    'SELECT user_id FROM round_millionaire_refusals WHERE round_number = ? ORDER BY user_id ASC',
+    [roundNumber]
+  ).map((row) => Number(row.user_id));
+}
+
+function hasUserBeenMillionaireBeforeRound(userId, roundNumber) {
+  const row = get(
+    'SELECT id FROM millionaire_history WHERE user_id = ? AND round_number < ? LIMIT 1',
+    [userId, roundNumber]
+  );
+  return Boolean(row);
+}
+
 function finalizeVoting(roundNumber, millionaireUserId) {
   const votes = all(
     `SELECT voter_user_id, target_user_id
@@ -164,13 +186,16 @@ function resetRoundState({ resetToRoundOne = false } = {}) {
   if (resetToRoundOne) {
     run('DELETE FROM round_votes');
     run('DELETE FROM round_profile_views');
+    run('DELETE FROM round_millionaire_refusals');
+    run('DELETE FROM millionaire_history');
   } else {
     run('DELETE FROM round_votes WHERE round_number = ?', [currentRound]);
     run('DELETE FROM round_profile_views WHERE round_number = ?', [currentRound]);
+    run('DELETE FROM round_millionaire_refusals WHERE round_number = ?', [currentRound]);
   }
 
   run(
-    'UPDATE game_state SET draw_done = 0, millionaire_user_id = NULL, voting_started = 0, voting_finalized = 0, current_round = ?, updated_at = ? WHERE id = 1',
+    'UPDATE game_state SET draw_done = 0, millionaire_user_id = NULL, forced_millionaire_user_id = NULL, voting_started = 0, voting_finalized = 0, current_round = ?, updated_at = ? WHERE id = 1',
     [resetToRoundOne ? 1 : currentRound, new Date().toISOString()]
   );
 }
@@ -186,7 +211,28 @@ function ensureRolesDrawn(roundNumber) {
     return;
   }
 
-  const roles = randomizeRolesForUsers(users.map((u) => Number(u.id)));
+  const forcedMillionaireUserId = state.forced_millionaire_user_id
+    ? Number(state.forced_millionaire_user_id)
+    : null;
+
+  let roles;
+  if (forcedMillionaireUserId !== null) {
+    const forcedUserIsPlayer = users.some((user) => Number(user.id) === forcedMillionaireUserId);
+    if (!forcedUserIsPlayer) {
+      throw new Error('O jogador forçado como milionário não está disponível nesta rodada.');
+    }
+
+    roles = users.map((user) => ({
+      userId: Number(user.id),
+      role: Number(user.id) === forcedMillionaireUserId ? 'MILIONARIO' : 'POBRE',
+    }));
+  } else {
+    const refusedUserIds = getRefusedMillionaireUserIds(roundNumber);
+    roles = randomizeRolesForUsers(
+      users.map((u) => Number(u.id)),
+      refusedUserIds
+    );
+  }
 
   run('DELETE FROM player_roles');
   roles.forEach((role) => {
@@ -196,8 +242,13 @@ function ensureRolesDrawn(roundNumber) {
   const millionaire = roles.find((r) => r.role === 'MILIONARIO');
 
   run(
-    'UPDATE game_state SET draw_done = 1, millionaire_user_id = ?, voting_started = 0, voting_finalized = 0, updated_at = ? WHERE id = 1',
+    'UPDATE game_state SET draw_done = 1, millionaire_user_id = ?, forced_millionaire_user_id = NULL, voting_started = 0, voting_finalized = 0, updated_at = ? WHERE id = 1',
     [millionaire.userId, new Date().toISOString()]
+  );
+
+  run(
+    'INSERT INTO millionaire_history (round_number, user_id, assigned_at) VALUES (?, ?, ?)',
+    [roundNumber, millionaire.userId, new Date().toISOString()]
   );
 
   run('DELETE FROM selected_missions');
@@ -210,13 +261,19 @@ function mapMissionRow(row) {
     ownerUserId: Number(row.owner_user_id),
     ownerUsername: row.username,
     content: row.content,
+    assignedToMillionaire: Number(row.assigned_to_millionaire) === 1,
     createdAt: row.created_at,
   };
 }
 
 function getAllMissions() {
   return all(
-    `SELECT missions.id, missions.owner_user_id, missions.content, missions.created_at, users.username
+    `SELECT missions.id,
+            missions.owner_user_id,
+            missions.content,
+            missions.assigned_to_millionaire,
+            missions.created_at,
+            users.username
      FROM missions
      INNER JOIN users ON users.id = missions.owner_user_id
      WHERE users.is_admin = 0
@@ -330,6 +387,7 @@ function getStateForUser(userId) {
   const isAdmin = me && Number(me.is_admin) === 1;
   const state = getGameState();
   const currentRound = Number(state.current_round || 1);
+  const refusedMillionaireUserIds = getRefusedMillionaireUserIds(currentRound);
   const missions = getAllMissions();
   const allSelectedMissions = getSelectedMissions();
   const currentMillionaireUserId = state.millionaire_user_id
@@ -339,7 +397,12 @@ function getStateForUser(userId) {
     ? getSelectedMissions({ millionaireUserId: currentMillionaireUserId })
     : [];
   const myMissionsRaw = all(
-    `SELECT missions.id, missions.owner_user_id, missions.content, missions.created_at, users.username
+    `SELECT missions.id,
+            missions.owner_user_id,
+            missions.content,
+            missions.assigned_to_millionaire,
+            missions.created_at,
+            users.username
      FROM missions
      INNER JOIN users ON users.id = missions.owner_user_id
      WHERE missions.owner_user_id = ?
@@ -356,6 +419,13 @@ function getStateForUser(userId) {
   const completedAllFour = allPlayersSubmittedFourMissions(users, missions);
   const isMillionaire = meRole === 'MILIONARIO';
   const isPoor = meRoleRaw === 'POBRE';
+  const wasMillionaireBeforeCurrentRound = isAdmin
+    ? false
+    : hasUserBeenMillionaireBeforeRound(userId, currentRound);
+  const canRefuseMillionaire =
+    !isAdmin &&
+    profileViewed &&
+    meRoleRaw === 'MILIONARIO';
   const canViewAll = canMillionaireViewMissions({
     drawDone,
     isMillionaire: meRoleRaw === 'MILIONARIO' && profileViewed,
@@ -397,7 +467,11 @@ function getStateForUser(userId) {
           id: mission.id,
           ownerUserId: mission.ownerUserId,
           ownerUsername: mission.ownerUsername,
+          assignedToMillionaire: mission.assignedToMillionaire,
         })),
+        forcedMillionaireUserId: state.forced_millionaire_user_id
+          ? Number(state.forced_millionaire_user_id)
+          : null,
         assignedMissions: allSelectedMissions.map((mission) => ({
           id: mission.id,
           missionId: mission.missionId,
@@ -415,9 +489,12 @@ function getStateForUser(userId) {
     isReadyToDraw: users.length === 4,
     isAdmin,
     drawDone,
+    millionaireAvailable: Number(state.draw_done) !== 1 && refusedMillionaireUserIds.length > 0,
     profileViewed,
     millionaireUserId: currentMillionaireUserId,
     myRole: meRole,
+    wasMillionaireBeforeCurrentRound,
+    canRefuseMillionaire,
     myPoints,
     myMissions,
     myMissionsCount: myMissions.length,
@@ -587,6 +664,46 @@ app.post('/api/game/reveal-profile', authMiddleware, (req, res) => {
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Erro ao revelar perfil.' });
   }
+});
+
+app.post('/api/rounds/refuse-millionaire', authMiddleware, (req, res) => {
+  const requester = getRequesterOr404(req.user.id, res);
+  if (!requester) {
+    return undefined;
+  }
+
+  if (Number(requester.is_admin) === 1) {
+    return res.status(403).json({ error: 'Admin não participa da rodada.' });
+  }
+
+  const state = getGameState();
+  const currentRound = Number(state.current_round || 1);
+
+  if (Number(state.draw_done) !== 1) {
+    return res.status(400).json({ error: 'A rodada ainda não tem milionário definido.' });
+  }
+
+  if (Number(state.millionaire_user_id) !== Number(req.user.id)) {
+    return res.status(403).json({ error: 'Apenas o milionário atual pode recusar.' });
+  }
+
+  run(
+    'INSERT OR IGNORE INTO round_millionaire_refusals (round_number, user_id, refused_at) VALUES (?, ?, ?)',
+    [currentRound, req.user.id, new Date().toISOString()]
+  );
+
+  run('DELETE FROM selected_missions');
+  run('DELETE FROM player_roles');
+  run('DELETE FROM round_votes WHERE round_number = ?', [currentRound]);
+  run('DELETE FROM round_profile_views WHERE round_number = ?', [currentRound]);
+  run(
+    'UPDATE game_state SET draw_done = 0, millionaire_user_id = NULL, forced_millionaire_user_id = NULL, voting_started = 0, voting_finalized = 0, updated_at = ? WHERE id = 1',
+    [new Date().toISOString()]
+  );
+
+  return res.json({
+    message: 'milionario disponivel',
+  });
 });
 
 app.post('/api/rounds/start-voting', authMiddleware, (req, res) => {
@@ -759,13 +876,21 @@ app.put('/api/game/missions/:missionId', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'ID de missão inválido.' });
   }
 
-  const mission = get('SELECT id, owner_user_id FROM missions WHERE id = ?', [missionId]);
+  const mission = get('SELECT id, owner_user_id, assigned_to_millionaire FROM missions WHERE id = ?', [
+    missionId,
+  ]);
   if (!mission) {
     return res.status(404).json({ error: 'Missão não encontrada.' });
   }
 
   if (Number(mission.owner_user_id) !== Number(req.user.id)) {
     return res.status(403).json({ error: 'Você só pode editar suas próprias missões.' });
+  }
+
+  if (Number(mission.assigned_to_millionaire) === 1) {
+    return res.status(409).json({
+      error: 'Não é possível editar missão já atribuída ao milionário.',
+    });
   }
 
   const { content } = req.body;
@@ -802,13 +927,21 @@ app.delete('/api/game/missions/:missionId', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'ID de missão inválido.' });
   }
 
-  const mission = get('SELECT id, owner_user_id FROM missions WHERE id = ?', [missionId]);
+  const mission = get('SELECT id, owner_user_id, assigned_to_millionaire FROM missions WHERE id = ?', [
+    missionId,
+  ]);
   if (!mission) {
     return res.status(404).json({ error: 'Missão não encontrada.' });
   }
 
   if (Number(mission.owner_user_id) !== Number(req.user.id)) {
     return res.status(403).json({ error: 'Você só pode remover suas próprias missões.' });
+  }
+
+  if (Number(mission.assigned_to_millionaire) === 1) {
+    return res.status(409).json({
+      error: 'Não é possível remover missão já atribuída ao milionário.',
+    });
   }
 
   run('DELETE FROM selected_missions WHERE mission_id = ? OR owner_user_id = ?', [
@@ -935,7 +1068,7 @@ app.post('/api/rounds/next', authMiddleware, (req, res) => {
 
   const nextRound = currentRound + 1;
   run(
-    'UPDATE game_state SET current_round = ?, draw_done = 0, millionaire_user_id = NULL, voting_started = 0, voting_finalized = 0, updated_at = ? WHERE id = 1',
+    'UPDATE game_state SET current_round = ?, draw_done = 0, millionaire_user_id = NULL, forced_millionaire_user_id = NULL, voting_started = 0, voting_finalized = 0, updated_at = ? WHERE id = 1',
     [nextRound, new Date().toISOString()]
   );
 
@@ -960,6 +1093,23 @@ app.post('/api/game/reset', authMiddleware, (req, res) => {
   resetRoundState({ resetToRoundOne: true });
 
   return res.json({ message: 'Reset concluído: sorteio, missões, rodadas e pontos zerados.' });
+});
+
+app.post('/api/admin/round/reset-profiles', authMiddleware, (req, res) => {
+  const requester = getRequesterOr404(req.user.id, res);
+  if (!requester) {
+    return undefined;
+  }
+
+  if (!requireAdminOr403(requester, res)) {
+    return undefined;
+  }
+
+  resetRoundState();
+
+  return res.json({
+    message: 'Perfis da rodada resetados. O botão "Ver seu perfil" foi liberado para todos.',
+  });
 });
 
 app.delete('/api/admin/players/:playerId', authMiddleware, (req, res) => {
@@ -990,6 +1140,8 @@ app.delete('/api/admin/players/:playerId', authMiddleware, (req, res) => {
     playerId,
     playerId,
   ]);
+  run('DELETE FROM round_millionaire_refusals WHERE user_id = ?', [playerId]);
+  run('DELETE FROM millionaire_history WHERE user_id = ?', [playerId]);
   run('DELETE FROM round_profile_views WHERE user_id = ?', [playerId]);
   run('DELETE FROM round_votes WHERE voter_user_id = ? OR target_user_id = ?', [playerId, playerId]);
   run('DELETE FROM missions WHERE owner_user_id = ?', [playerId]);
@@ -1019,12 +1171,19 @@ app.delete('/api/admin/missions/:missionId', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'ID de missão inválido.' });
   }
 
-  const mission = get('SELECT missions.id, missions.owner_user_id FROM missions WHERE missions.id = ?', [
-    missionId,
-  ]);
+  const mission = get(
+    'SELECT missions.id, missions.owner_user_id, missions.assigned_to_millionaire FROM missions WHERE missions.id = ?',
+    [missionId]
+  );
 
   if (!mission) {
     return res.status(404).json({ error: 'Missão não encontrada.' });
+  }
+
+  if (Number(mission.assigned_to_millionaire) === 1) {
+    return res.status(409).json({
+      error: 'Não é possível remover missão já atribuída ao milionário.',
+    });
   }
 
   run('DELETE FROM selected_missions WHERE mission_id = ? OR owner_user_id = ?', [
@@ -1095,6 +1254,47 @@ app.put('/api/admin/game/current-round', authMiddleware, (req, res) => {
   ]);
 
   return res.json({ message: `Rodada atual definida para ${nextRound}.` });
+});
+
+app.put('/api/admin/game/forced-millionaire', authMiddleware, (req, res) => {
+  const requester = getRequesterOr404(req.user.id, res);
+  if (!requester) {
+    return undefined;
+  }
+
+  if (!requireAdminOr403(requester, res)) {
+    return undefined;
+  }
+
+  const state = getGameState();
+  if (Number(state.draw_done) === 1) {
+    return res.status(409).json({
+      error: 'A rodada já foi iniciada. Resete os perfis para aplicar um milionário forçado.',
+    });
+  }
+
+  const { playerId } = req.body || {};
+  const targetPlayerId = Number(playerId);
+  if (!Number.isInteger(targetPlayerId)) {
+    return res.status(400).json({ error: 'ID de jogador alvo inválido.' });
+  }
+
+  const targetPlayer = get(`SELECT id, username FROM users WHERE id = ? AND ${GAME_PLAYERS_WHERE}`, [
+    targetPlayerId,
+  ]);
+  if (!targetPlayer) {
+    return res.status(404).json({ error: 'Jogador alvo não encontrado.' });
+  }
+
+  run('UPDATE game_state SET forced_millionaire_user_id = ?, updated_at = ? WHERE id = 1', [
+    targetPlayerId,
+    new Date().toISOString(),
+  ]);
+
+  return res.json({
+    message: `Jogador ${targetPlayer.username} definido como milionário forçado para o próximo sorteio.`,
+    forcedMillionaireUserId: targetPlayerId,
+  });
 });
 
 app.put('/api/admin/players/:playerId/points', authMiddleware, (req, res) => {

@@ -70,6 +70,7 @@ function initSchema() {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       draw_done INTEGER NOT NULL DEFAULT 0,
       millionaire_user_id INTEGER,
+      forced_millionaire_user_id INTEGER,
       current_round INTEGER NOT NULL DEFAULT 1,
       voting_started INTEGER NOT NULL DEFAULT 0,
       voting_finalized INTEGER NOT NULL DEFAULT 0,
@@ -92,6 +93,13 @@ function initSchema() {
   const hasVotingFinalized = gameStateColumns.some((col) => col.name === 'voting_finalized');
   if (!hasVotingFinalized) {
     run('ALTER TABLE game_state ADD COLUMN voting_finalized INTEGER NOT NULL DEFAULT 0');
+  }
+
+  const hasForcedMillionaireUserId = gameStateColumns.some(
+    (col) => col.name === 'forced_millionaire_user_id'
+  );
+  if (!hasForcedMillionaireUserId) {
+    run('ALTER TABLE game_state ADD COLUMN forced_millionaire_user_id INTEGER');
   }
 
   run(`
@@ -196,6 +204,27 @@ function initSchema() {
       round_number INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
       viewed_at TEXT NOT NULL,
+      UNIQUE(round_number, user_id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+
+  run(`
+    CREATE TABLE IF NOT EXISTS millionaire_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      round_number INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      assigned_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+
+  run(`
+    CREATE TABLE IF NOT EXISTS round_millionaire_refusals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      round_number INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      refused_at TEXT NOT NULL,
       UNIQUE(round_number, user_id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
