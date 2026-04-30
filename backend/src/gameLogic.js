@@ -29,8 +29,8 @@ function pickRandomMissionFromEachPlayer(missionsByPlayer) {
   }
 
   return missionsByPlayer.map((playerMissions) => {
-    if (!Array.isArray(playerMissions.missions) || playerMissions.missions.length !== 4) {
-      throw new Error('Cada jogador precisa ter exatamente 4 missões cadastradas.');
+    if (!Array.isArray(playerMissions.missions) || playerMissions.missions.length < 1) {
+      throw new Error('Cada jogador precisa ter ao menos 1 missão disponível para sorteio.');
     }
 
     const randomIndex = Math.floor(Math.random() * playerMissions.missions.length);

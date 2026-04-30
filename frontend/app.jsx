@@ -153,6 +153,26 @@ function App() {
     }
   }
 
+  async function handleRefuseMillionaire() {
+    clearFeedback();
+
+    const confirmed = window.confirm(
+      'Deseja recusar ser o milionário nesta rodada? O sorteio será liberado novamente para todos.'
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const result = await api('/rounds/refuse-millionaire', 'POST');
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleMissionSubmit(event) {
     event.preventDefault();
     clearFeedback();
@@ -331,6 +351,47 @@ function App() {
     }
   }
 
+  async function handleAdminResetProfiles() {
+    clearFeedback();
+
+    const confirmed = window.confirm(
+      'Deseja resetar os perfis da rodada atual e liberar "Ver seu perfil" para todos?'
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const result = await api('/admin/round/reset-profiles', 'POST');
+      setMessage(result.message);
+      setVoteTargetUserId('');
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAdminForceMillionaire(playerId, playerUsername) {
+    clearFeedback();
+
+    const confirmed = window.confirm(
+      `Deseja forçar ${playerUsername} como milionário no próximo sorteio desta rodada?`
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const result = await api('/admin/game/forced-millionaire', 'PUT', { playerId });
+      setMessage(result.message);
+      await refreshState();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleAdminResetPassword(playerId, playerUsername) {
     clearFeedback();
 
@@ -448,6 +509,7 @@ function App() {
     if (!state) return 'Carregando...';
     if (state.isAdmin) return 'Admin acompanhando a rodada atual';
     if (state.totalPlayers < 4) return `Aguardando jogadores (${state.totalPlayers}/4)`;
+    if (state.millionaireAvailable) return 'milionario disponivel';
     if (!state.profileViewed) return 'Clique em "Ver seu perfil" para descobrir seu papel';
     if (!state.allPlayersSubmittedMissions)
       return `Aguardando missões (${state.missionsCount}/${state.requiredTotalMissions})`;
@@ -591,31 +653,34 @@ function App() {
           <article className="bg-slate-900 border border-slate-700 rounded-2xl p-5">
             <h2 className="text-xl font-semibold mb-3">Minhas missões</h2>
             <p className="text-sm text-slate-400 mb-3">
-              Você deve cadastrar {state?.maxMissionsPerPlayer || 4} missões. Atual:{' '}
+              Você deve cadastrar ao menos {state?.maxMissionsPerPlayer || 4} missões. Atual:{' '}
               {state?.myMissionsCount || 0}/{state?.maxMissionsPerPlayer || 4}
             </p>
 
-            {(state?.myMissionsCount || 0) < (state?.maxMissionsPerPlayer || 4) && (
-              <form onSubmit={handleMissionSubmit} className="space-y-3 mb-4">
-                <textarea
-                  className="w-full h-28 bg-slate-800 rounded-lg px-3 py-2 border border-slate-700"
-                  placeholder="Descreva uma missão..."
-                  value={missionText}
-                  onChange={(e) => setMissionText(e.target.value)}
-                />
-                <button
-                  className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-800 rounded-lg py-2 font-bold"
-                  disabled={loading || !state?.isReadyToDraw}
-                  type="submit"
-                >
-                  Salvar missão
-                </button>
-              </form>
-            )}
+            <form onSubmit={handleMissionSubmit} className="space-y-3 mb-4">
+              <textarea
+                className="w-full h-28 bg-slate-800 rounded-lg px-3 py-2 border border-slate-700"
+                placeholder="Descreva uma missão..."
+                value={missionText}
+                onChange={(e) => setMissionText(e.target.value)}
+              />
+              <button
+                className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-800 rounded-lg py-2 font-bold"
+                disabled={loading}
+                type="submit"
+              >
+                Salvar missão
+              </button>
+            </form>
 
             <ul className="space-y-2">
               {(state?.myMissions || []).map((mission) => (
                 <li key={mission.id} className="bg-slate-800 rounded-lg px-3 py-2">
+                  {mission.assignedToMillionaire && (
+                    <p className="text-xs text-amber-300 mb-2 font-semibold">
+                      Já atribuída ao milionário nesta rodada
+                    </p>
+                  )}
                   {editingMissionId === mission.id ? (
                     <form onSubmit={(event) => handleMissionEditSubmit(event, mission.id)} className="space-y-2">
                       <textarea
@@ -626,7 +691,7 @@ function App() {
                       <div className="flex gap-2">
                         <button
                           type="submit"
-                          disabled={loading || state?.profileViewed}
+                          disabled={loading || state?.profileViewed || mission.assignedToMillionaire}
                           className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-800 rounded-lg px-3 py-1 text-sm font-semibold"
                         >
                           Salvar
@@ -649,7 +714,7 @@ function App() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          disabled={loading || state?.profileViewed}
+                          disabled={loading || state?.profileViewed || mission.assignedToMillionaire}
                           onClick={() => {
                             setEditingMissionId(mission.id);
                             setEditingMissionText(mission.content);
@@ -660,7 +725,7 @@ function App() {
                         </button>
                         <button
                           type="button"
-                          disabled={loading || state?.profileViewed}
+                          disabled={loading || state?.profileViewed || mission.assignedToMillionaire}
                           onClick={() => handleMissionRemove(mission.id)}
                           className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-2 py-1 text-xs font-bold"
                         >
@@ -769,6 +834,17 @@ function App() {
                 : 'Ver minhas 4 missões sorteadas'}
             </button>
 
+            {state?.canRefuseMillionaire && (
+              <button
+                className="mb-4 ml-2 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 text-white font-bold rounded-lg px-4 py-2"
+                onClick={handleRefuseMillionaire}
+                disabled={loading}
+                type="button"
+              >
+                Recusar
+              </button>
+            )}
+
             <ul className="space-y-2">
               {(state?.missionsVisibleToMillionaire || []).map((mission) => (
                 <li key={mission.id} className="bg-slate-800 rounded-lg px-3 py-3">
@@ -838,7 +914,23 @@ function App() {
                 >
                   Salvar rodada
                 </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-4 py-2 font-semibold"
+                  onClick={handleAdminResetProfiles}
+                >
+                  Resetar perfis
+                </button>
               </form>
+              <p className="text-xs text-slate-400 mt-3">
+                Milionário forçado para o próximo sorteio:{' '}
+                <strong>
+                  {(state?.adminData?.players || []).find(
+                    (player) => player.id === state?.adminData?.forcedMillionaireUserId
+                  )?.username || 'nenhum'}
+                </strong>
+              </p>
             </article>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -851,15 +943,32 @@ function App() {
                       className="bg-slate-800 rounded-lg px-3 py-2 flex flex-col gap-3"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <span>{player.username}</span>
-                        <button
-                          type="button"
-                          disabled={loading}
-                          className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-3 py-1 text-sm font-semibold"
-                          onClick={() => handleRemovePlayer(player.id, player.username)}
-                        >
-                          Remover
-                        </button>
+                        <span>
+                          {player.username}{' '}
+                          {player.id === state?.adminData?.forcedMillionaireUserId && (
+                            <span className="text-xs text-amber-300 font-semibold">
+                              · Milionário forçado
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={loading || state?.drawDone}
+                            className="bg-amber-500 hover:bg-amber-400 disabled:bg-amber-900 text-slate-900 rounded-lg px-3 py-1 text-sm font-semibold"
+                            onClick={() => handleAdminForceMillionaire(player.id, player.username)}
+                          >
+                            Forçar milionário
+                          </button>
+                          <button
+                            type="button"
+                            disabled={loading}
+                            className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-3 py-1 text-sm font-semibold"
+                            onClick={() => handleRemovePlayer(player.id, player.username)}
+                          >
+                            Remover
+                          </button>
+                        </div>
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
@@ -954,10 +1063,15 @@ function App() {
                       <div>
                         <p className="text-xs text-slate-400 mb-1">{mission.ownerUsername}</p>
                         <p>Missão #{mission.id}</p>
+                        {mission.assignedToMillionaire && (
+                          <p className="text-xs text-amber-300 mt-1 font-semibold">
+                            Já atribuída ao milionário
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
-                        disabled={loading}
+                        disabled={loading || mission.assignedToMillionaire}
                         className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-900 rounded-lg px-3 py-1 text-sm font-semibold"
                         onClick={() => handleRemoveMission(mission.id)}
                       >

@@ -333,7 +333,7 @@ function allPlayersSubmittedFourMissions(users, missions) {
     }
   });
 
-  return users.every((user) => countByUser[Number(user.id)] === 4);
+  return users.every((user) => countByUser[Number(user.id)] >= 4);
 }
 
 function generateMissionAssignments({ millionaireUserId, users }) {
@@ -828,15 +828,7 @@ app.post('/api/game/mission', authMiddleware, (req, res) => {
         .json({ error: 'A missão é obrigatória e precisa ter ao menos 5 caracteres.' });
     }
 
-    const usersCount = get(`SELECT COUNT(*) AS total FROM users WHERE ${GAME_PLAYERS_WHERE}`);
-    if (Number(usersCount.total) !== 4) {
-      return res.status(400).json({ error: 'As missões só podem ser cadastradas quando houver 4 jogadores.' });
-    }
-
     const mineCount = get('SELECT COUNT(*) AS total FROM missions WHERE owner_user_id = ?', [req.user.id]);
-    if (Number(mineCount.total) >= 4) {
-      return res.status(409).json({ error: 'Você já cadastrou suas 4 missões.' });
-    }
 
     run('INSERT INTO missions (owner_user_id, content, created_at) VALUES (?, ?, ?)', [
       req.user.id,
